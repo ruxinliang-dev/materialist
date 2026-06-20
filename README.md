@@ -89,4 +89,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Author
 
-Ruxin Liang — [ruxin.art](https://ruxin.art/)
+Ruxin Liang — [Behance](https://www.behance.net/ruxin-liang)
