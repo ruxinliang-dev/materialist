@@ -1,0 +1,22 @@
+<svg viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Materialist - material manager for Maya">
+  <rect width="1280" height="640" fill="#221f1c"/>
+  <rect width="14" height="640" fill="#c67e2a"/>
+
+  <text x="82" y="300" font-family="Helvetica, Arial, sans-serif" font-size="98" font-weight="700" fill="#ece6da">Materialist</text>
+  <text x="86" y="360" font-family="Helvetica, Arial, sans-serif" font-size="34" fill="#d68f3a">Material manager for Maya</text>
+  <text x="86" y="416" font-family="Helvetica, Arial, sans-serif" font-size="23" fill="#a89f92">Search &#183; Assign &#183; Duplicate &#183; Merge &#183; Clean up</text>
+  <text x="86" y="566" font-family="Helvetica, Arial, sans-serif" font-size="21" fill="#877f72">Open-source (MIT)&#160;&#160;&#183;&#160;&#160;Maya 2022+</text>
+
+  <rect x="770" y="160" width="420" height="360" rx="14" fill="#2c2925" stroke="#3a352e"/>
+  <text x="792" y="196" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#cfc7ba">Materialist</text>
+  <rect x="792" y="212" width="376" height="92" rx="6" fill="#15120e"/>
+  <text x="806" y="242" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#cfc7ba">lambert1</text>
+  <text x="806" y="266" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#cfc7ba">VRayMtl2</text>
+  <text x="806" y="290" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#cfc7ba">aiStandardSurface3</text>
+  <rect x="792" y="320" width="376" height="44" rx="6" fill="#c67e2a"/>
+  <text x="980" y="348" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#2e1f06">Create and Assign</text>
+  <rect x="792" y="372" width="376" height="44" rx="6" fill="#45413a"/>
+  <text x="980" y="400" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#d9d3c8">Assign to Selection</text>
+  <rect x="792" y="424" width="376" height="44" rx="6" fill="#6f461a"/>
+  <text x="980" y="452" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#efe5d4">Delete Material</text>
+</svg>

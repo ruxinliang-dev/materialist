@@ -3,9 +3,11 @@
 A lightweight shelf tool for finding, assigning, duplicating, cleaning up, and
 exporting materials and shading networks in Autodesk Maya.
 
-![Materialist UI](screenshots/ui.png)
+![Materialist](screenshots/banner.svg)
 
 ## Features
+
+![Materialist UI](screenshots/ui.png)
 
 **Browse**
 - List every material in the scene, with live search by name
