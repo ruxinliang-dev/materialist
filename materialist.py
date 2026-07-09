@@ -10,7 +10,7 @@ Usage:
     materialist.show()
 
 Compatibility: Maya 2022+ (Python 3).
-Author: Ruxin Liang  -  https://ruxin.art/
+Author: Ruxin Liang  -  https://www.behance.net/ruxin-liang
 License: MIT
 """
 
@@ -114,29 +114,36 @@ def _repeatable(func):
         pass
 
 
-def _resolve_shader_targets():
-    """Return a list of shader nodes to duplicate.
+def _resolve_shading_engines():
+    """Return the shading engine(s) to duplicate.
 
     Uses the Matching Materials list selection first; otherwise the current
-    scene / Node Editor selection, resolving any shading engine to its surface
-    shader and ignoring non-shader nodes.
+    scene / Node Editor selection. Materials and shaders are resolved to their
+    shading engine; a selected shading engine is used directly.
     """
+    engines = []
+
     list_ctrl = _ui.get("material_list")
     if list_ctrl and cmds.textScrollList(list_ctrl, exists=True):
         selected = cmds.textScrollList(list_ctrl, query=True, selectItem=True)
         if selected:
             name = _clean_name(selected[0])
-            return [name] if cmds.objExists(name) else []
+            if cmds.objExists(name):
+                engines += cmds.listConnections(name, type="shadingEngine") or []
 
-    targets = []
-    for node in (cmds.ls(selection=True) or []):
-        if cmds.nodeType(node) == "shadingEngine":
-            shaders = cmds.listConnections(node + ".surfaceShader", source=True, destination=False) or []
-            if shaders:
-                targets.append(shaders[0])
-        elif cmds.ls(node, materials=True):
-            targets.append(node)
-    return targets
+    if not engines:
+        for node in (cmds.ls(selection=True) or []):
+            if cmds.nodeType(node) == "shadingEngine":
+                engines.append(node)
+            elif cmds.ls(node, materials=True):
+                engines += cmds.listConnections(node, type="shadingEngine") or []
+
+    seen, unique = set(), []
+    for eng in engines:
+        if eng not in seen:
+            seen.add(eng)
+            unique.append(eng)
+    return unique
 
 
 # ---------------------------------------------------------------------------
@@ -273,44 +280,76 @@ def transfer_material(*args):
     _msg("Material {} assigned to {} target(s).".format(material, len(target_objects)))
 
 
-def duplicate_shading_network(*args):
-    """Duplicate the selected shader's upstream network with clean, unique names.
+# Shading-group slots duplicated as part of a full material copy:
+_SG_SHADER_SLOTS = ("surfaceShader", "displacementShader", "volumeShader")
 
-    Duplicates the shader plus its upstream nodes, then renames every duplicate
-    to a clean base name - Maya's "pasted__" prefix and trailing numbers
-    stripped, so there is NO prefix and NO suffix. Works from the Matching
-    Materials list, or from shaders / shading engines selected in the scene or
-    Node Editor. (Like a Node Editor network copy; it does not create a new
-    shading group - assign the result to generate one.)
+
+def duplicate_shading_network(*args):
+    """Duplicate the selected material as a fully independent copy.
+
+    Creates a new shading group and, for every connected slot (surface,
+    displacement, volume), duplicates that shader's upstream network with clean,
+    unique names - Maya's "pasted__" prefix and trailing numbers stripped - then
+    reconnects each to the new shading group. Displacement and volume shaders are
+    preserved. Works from the Matching Materials list, or from a material /
+    shading group selected in the scene or Node Editor.
     """
-    targets = _resolve_shader_targets()
-    if not targets:
-        _msg("Select a material in the list, or a shader in the scene / Node Editor.", ok=False)
+    engines = _resolve_shading_engines()
+    if not engines:
+        _msg("Select a material in the list, or a material / shading group in the scene / Node Editor.", ok=False)
         return
 
-    copied = []
-    for shader in targets:
-        if not cmds.objExists(shader):
+    made, copied = [], []
+    for sg in engines:
+        if not cmds.objExists(sg):
             continue
-        duplicated = cmds.duplicate(shader, upstreamNodes=True, returnRootsOnly=False) or []
-        for old_node in duplicated:
-            if not cmds.objExists(old_node):
+        new_sg = cmds.sets(renderable=True, noSurfaceShader=True, empty=True,
+                           name=_make_unique_name(_clean_shader_name(sg)))
+        surface_new = None
+        for slot in _SG_SHADER_SLOTS:
+            src_plugs = cmds.listConnections(sg + "." + slot, source=True,
+                                             destination=False, plugs=True) or []
+            if not src_plugs:
                 continue
-            unique = _make_unique_name(_clean_shader_name(old_node))
+            src_node, src_attr = src_plugs[0].split(".", 1)
+            dup_nodes = cmds.duplicate(src_node, upstreamNodes=True, returnRootsOnly=False) or []
+            if not dup_nodes:
+                continue
+            root, root_new = dup_nodes[0], dup_nodes[0]
+            for old_node in dup_nodes:
+                if not cmds.objExists(old_node):
+                    continue
+                try:
+                    renamed = cmds.rename(old_node, _make_unique_name(_clean_shader_name(old_node)))
+                except Exception:
+                    renamed = old_node
+                copied.append(renamed)
+                if old_node == root:
+                    root_new = renamed
             try:
-                copied.append(cmds.rename(old_node, unique))
+                cmds.connectAttr(root_new + "." + src_attr, new_sg + "." + slot, force=True)
             except Exception:
-                copied.append(old_node)
+                pass
+            if slot == "surfaceShader":
+                surface_new = root_new
 
-    if not copied:
+        # give the new shading group a clean name based on its surface shader
+        if surface_new:
+            try:
+                new_sg = cmds.rename(new_sg, _make_unique_name(surface_new + "SG"))
+            except Exception:
+                pass
+        made.append(new_sg)
+
+    if not made:
         _msg("Duplicate failed.", ok=False)
         return
 
-    cmds.select(copied, replace=True)
+    cmds.select(made, replace=True)
     update_material_list()
     new_materials = cmds.ls(copied, materials=True)
-    label = new_materials[0] if new_materials else copied[0]
-    _msg("Duplicated shading network: {}".format(label))
+    label = new_materials[0] if new_materials else made[0]
+    _msg("Duplicated material (surface + displacement / volume preserved): {}".format(label))
 
 
 def delete_material(*args):
@@ -805,8 +844,9 @@ def show():
     cmds.separator(height=6, style="none")
     cmds.button(label="Duplicate Shading Network", backgroundColor=BTN_MATERIAL,
                 command=lambda *_: _repeatable(duplicate_shading_network),
-                annotation="Duplicate the selected shader's network (no prefix/suffix, like Hypershade). "
-                           "Works from the list or a shader selected in the scene/Hypershade.")
+                annotation="Duplicate the selected material into a new shading group with clean names "
+                           "(no prefix/suffix), preserving displacement and volume shaders. "
+                           "Works from the list or a material/shading group selected in the scene/Hypershade.")
     cmds.button(label="Delete Material", backgroundColor=BTN_DANGER,
                 command=lambda *_: _repeatable(delete_material),
                 annotation="Delete the selected shading network (destructive)")

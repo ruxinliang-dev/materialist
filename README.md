@@ -24,8 +24,9 @@ exporting materials and shading networks in Autodesk Maya.
 - Create a material — Lambert, Blinn, Phong, Standard Surface, plus any
   installed renderer materials (e.g. `aiStandardSurface`, `VRayMtl`,
   `RedshiftMaterial`) — and assign it to the selection
-- Duplicate a shading network with clean, unique names (no `pasted__` prefix
-  and no numbered suffix)
+- Duplicate a material into a new shading group with clean, unique names (no
+  `pasted__` prefix or numbered suffix), preserving its displacement and volume
+  shaders
 - Delete a material and its shading group
 
 **Cleanup**
