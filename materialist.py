@@ -209,13 +209,10 @@ def list_all_shaders(*args):
     namespace = cmds.optionMenu(_ui["namespace_menu"], query=True, value=True)
     only_with_sg = cmds.checkBox(_ui["only_with_sg_check"], query=True, value=True)
 
-    all_shaders = cmds.ls(materials=True, long=True)
-    if namespace != "All Namespaces":
-        all_shaders = [mat for mat in all_shaders if mat.startswith(namespace + ":")]
-    if only_with_sg:
-        all_shaders = [mat for mat in all_shaders if get_shading_group(mat)]
-
-    all_shaders_with_status = _build_material_entries(all_shaders)
+    # Listing all materials is equivalent to searching with an empty query.
+    # Reuse the shared filter so all namespace modes stay consistent.
+    matching = find_materials("", namespace, only_with_sg)
+    all_shaders_with_status = _build_material_entries(matching)
 
     cmds.textScrollList(_ui["material_list"], edit=True, removeAll=True)
     if all_shaders_with_status:
