@@ -575,13 +575,49 @@ def select_geometry_from_list(*args):
 # Export / import
 # ---------------------------------------------------------------------------
 
+def _resolve_material_for_export():
+    """Return the material selected for export.
+
+    The Matching Materials list remains the preferred source.  When the list
+    has no selection, accept a material selected in Maya or resolve a selected
+    shading engine from its surfaceShader connection.  This also covers
+    shading-engine selections made in the Node Editor.
+    """
+    list_ctrl = _ui.get("material_list")
+    if list_ctrl and cmds.textScrollList(list_ctrl, exists=True):
+        selected = cmds.textScrollList(list_ctrl, query=True, selectItem=True)
+        if selected:
+            return _clean_name(selected[0])
+
+    for node in (cmds.ls(selection=True) or []):
+        if not cmds.objExists(node):
+            continue
+
+        if cmds.nodeType(node) == "shadingEngine":
+            connected = cmds.listConnections(
+                node + ".surfaceShader",
+                source=True,
+                destination=False,
+            ) or []
+            materials = cmds.ls(connected, materials=True) or []
+            if materials:
+                return materials[0]
+        elif cmds.ls(node, materials=True):
+            return node
+
+    return None
+
+
 def export_shader(*args):
-    selected = cmds.textScrollList(_ui["material_list"], query=True, selectItem=True)
-    if not selected:
-        _msg("No material selected from the list.", ok=False)
+    material = _resolve_material_for_export()
+    if not material:
+        _msg(
+            "No material selected. Select a material from the list, or select "
+            "a material / shading group in the scene / Node Editor.",
+            ok=False,
+        )
         return
 
-    material = _clean_name(selected[0])
     if not cmds.objExists(material):
         _msg("Material '{}' not found.".format(material), ok=False)
         return
