@@ -254,7 +254,9 @@ def assign_selected_material(*args):
 
 
 def transfer_material(*args):
-    selected_objects = cmds.ls(selection=True)
+    # Long names: short names are ambiguous when two parents share a child
+    # name (same convention as create_and_assign_material / find_materials).
+    selected_objects = cmds.ls(selection=True, long=True)
     if len(selected_objects) < 2:
         _msg("Please select at least two objects (source first, then targets).", ok=False)
         return
@@ -270,11 +272,23 @@ def transfer_material(*args):
         return
 
     material = materials[0]
-    for obj in target_objects:
-        cmds.select(obj)
+    try:
+        # One select + one hyperShade call over all targets: faster than a
+        # per-object loop and a single undo entry (same approach as
+        # assign_selected_material).
+        cmds.select(target_objects, replace=True)
         cmds.hyperShade(assign=material)
+    finally:
+        # Restore the source+targets selection the user started with; the
+        # old per-object select loop left only the last target selected.
+        cmds.select(selected_objects, replace=True)
 
     _msg("Material {} assigned to {} target(s).".format(material, len(target_objects)))
+    if len(materials) > 1:
+        # Per-face assignments on the source are downgraded to the first
+        # material; say so instead of silently shipping wrong shading.
+        _msg("Source has {} materials (per-face assignment); transferred only "
+             "'{}'.".format(len(materials), material), ok=False)
 
 
 # Shading-group slots duplicated as part of a full material copy:
