@@ -253,6 +253,21 @@ def assign_selected_material(*args):
     _msg("Shader {} assigned to {} object(s).".format(material_name, len(selected_objects)))
 
 
+def _mesh_face_list(object_name):
+    """Return all faces of a mesh in index order; empty for non-mesh shapes."""
+    return cmds.ls(object_name + ".f[*]", flatten=True) or []
+
+
+def _face_indices(components):
+    """Return the trailing [N] indices of flattened face component names."""
+    indices = []
+    for component in components:
+        match = re.search(r"\[(\d+)\]$", component)
+        if match:
+            indices.append(int(match.group(1)))
+    return indices
+
+
 def transfer_material(*args):
     # Long names: short names are ambiguous when two parents share a child
     # name (same convention as create_and_assign_material / find_materials).
@@ -272,23 +287,57 @@ def transfer_material(*args):
         return
 
     material = materials[0]
+
+    # Per-face membership of the source, so targets with matching topology
+    # (duplicates, same-base meshes) receive the same face sets instead of
+    # every material being downgraded to the first one.
+    source_faces = _mesh_face_list(source_object)
+    face_sets = []
+    if len(materials) > 1 and source_faces:
+        source_shape_prefix = source_faces[0].split(".f[")[0]
+        for engine in shading_engines:
+            members = cmds.ls(cmds.sets(engine, query=True) or [], flatten=True) or []
+            own = [m for m in members if m.startswith(source_shape_prefix)]
+            indices = _face_indices(own)
+            if indices:
+                face_sets.append((engine, indices))
+
     try:
-        # One select + one hyperShade call over all targets: faster than a
-        # per-object loop and a single undo entry (same approach as
-        # assign_selected_material).
-        cmds.select(target_objects, replace=True)
-        cmds.hyperShade(assign=material)
+        if face_sets:
+            whole_object = []
+            for obj in target_objects:
+                target_faces = _mesh_face_list(obj)
+                if len(target_faces) == len(source_faces):
+                    for engine, indices in face_sets:
+                        cmds.sets(
+                            [target_faces[i] for i in indices],
+                            edit=True,
+                            forceElement=engine,
+                        )
+                else:
+                    whole_object.append(obj)
+            if whole_object:
+                cmds.select(whole_object, replace=True)
+                cmds.hyperShade(assign=material)
+        else:
+            # Single material (or non-mesh source): one select + one
+            # hyperShade call over all targets, same approach as
+            # assign_selected_material.
+            cmds.select(target_objects, replace=True)
+            cmds.hyperShade(assign=material)
     finally:
         # Restore the source+targets selection the user started with; the
-        # old per-object select loop left only the last target selected.
+        # historical per-object select loop left only the last target selected.
         cmds.select(selected_objects, replace=True)
 
-    _msg("Material {} assigned to {} target(s).".format(material, len(target_objects)))
     if len(materials) > 1:
-        # Per-face assignments on the source are downgraded to the first
-        # material; say so instead of silently shipping wrong shading.
-        _msg("Source has {} materials (per-face assignment); transferred only "
-             "'{}'.".format(len(materials), material), ok=False)
+        _msg(
+            "Source has {} materials (per-face assignment); transferred face "
+            "sets to targets matching the source's face count, assigned '{}' "
+            "whole-object otherwise.".format(len(materials), material)
+        )
+    else:
+        _msg("Material {} assigned to {} target(s).".format(material, len(target_objects)))
 
 
 # Shading-group slots duplicated as part of a full material copy:
