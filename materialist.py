@@ -254,9 +254,9 @@ def assign_selected_material(*args):
 
 
 def transfer_material(*args):
-    # Long names: short names are ambiguous when two parents share a child
-    # name (same convention as create_and_assign_material / find_materials).
-    selected_objects = cmds.ls(selection=True, long=True)
+    # Full DAG paths provide stable object identification in complex
+    # hierarchies (same convention as create_and_assign_material / find_materials).
+    selected_objects = cmds.ls(selection=True, long=True) or []
     if len(selected_objects) < 2:
         _msg("Please select at least two objects (source first, then targets).", ok=False)
         return
@@ -264,31 +264,47 @@ def transfer_material(*args):
     source_object = selected_objects[0]
     target_objects = selected_objects[1:]
 
-    history = cmds.listHistory(source_object, future=True)
-    shading_engines = cmds.ls(history, type="shadingEngine")
-    materials = cmds.ls(cmds.listConnections(shading_engines), materials=True) if shading_engines else []
+    history = cmds.listHistory(source_object, future=True) or []
+    shading_engines = cmds.ls(history, type="shadingEngine") or []
+    connections = ((cmds.listConnections(shading_engines) or [])
+                   if shading_engines else [])
+    materials = ((cmds.ls(connections, materials=True) or [])
+                 if connections else [])
+    # Connection traversal can return the same material more than once. Keep
+    # the first occurrence so the safety check reflects unique material nodes.
+    materials = list(dict.fromkeys(materials))
     if not materials:
         _msg("No material found for {}.".format(source_object), ok=False)
         return
 
+    if len(materials) > 1:
+        # Per-face remapping is handled separately. Do not replace the targets'
+        # assignments with an arbitrary first material in this safe fallback.
+        _msg(
+            "Source has {} materials; transfer cancelled to avoid losing "
+            "possible per-face assignments.".format(len(materials)),
+            ok=False,
+        )
+        return
+
     material = materials[0]
+    cmds.undoInfo(openChunk=True, chunkName="Transfer Material")
     try:
         # One select + one hyperShade call over all targets: faster than a
-        # per-object loop and a single undo entry (same approach as
-        # assign_selected_material).
+        # per-object loop. The undo chunk groups selection, assignment, and
+        # selection restoration into one undoable operation.
         cmds.select(target_objects, replace=True)
         cmds.hyperShade(assign=material)
     finally:
-        # Restore the source+targets selection the user started with; the
-        # old per-object select loop left only the last target selected.
-        cmds.select(selected_objects, replace=True)
+        try:
+            # Restore the source+targets selection the user started with; the
+            # old per-object select loop left only the last target selected.
+            cmds.select(selected_objects, replace=True)
+        finally:
+            # Never leave Maya's undo queue inside an open chunk.
+            cmds.undoInfo(closeChunk=True)
 
     _msg("Material {} assigned to {} target(s).".format(material, len(target_objects)))
-    if len(materials) > 1:
-        # Per-face assignments on the source are downgraded to the first
-        # material; say so instead of silently shipping wrong shading.
-        _msg("Source has {} materials (per-face assignment); transferred only "
-             "'{}'.".format(len(materials), material), ok=False)
 
 
 # Shading-group slots duplicated as part of a full material copy:
