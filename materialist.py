@@ -23,8 +23,11 @@ import maya.mel as mel
 # Constants
 # ---------------------------------------------------------------------------
 
+__version__ = "1.1.0"
+
 WINDOW_NAME = "materialistWindow"
-WINDOW_TITLE = "Materialist - Material Manager"
+# The version is shown in the title so a bug report identifies its build.
+WINDOW_TITLE = "Materialist {} - Material Manager".format(__version__)
 
 # Suffix used in the list to flag a material that has no shading group.
 # Defined once so the same string is used when appending AND when stripping.
