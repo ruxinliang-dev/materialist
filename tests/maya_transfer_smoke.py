@@ -7,7 +7,7 @@ the whole transfer collapses into one undo step.
 
 try:                                    # already inside a running Maya
     import maya.cmds as cmds
-    cmds.about(batch=True)
+    cmds.ls(selection=True)         # only answers once Maya is running
     STANDALONE = False
 except Exception:                       # launched through mayapy
     import maya.standalone
@@ -53,6 +53,14 @@ def _face_map(obj):
 
 
 FAILURES = []
+
+
+def report():
+    """Print the verdict. A failed check must never read as a pass."""
+    if FAILURES:
+        print("\nFAILED (%d): %s" % (len(FAILURES), ", ".join(FAILURES)))
+    else:
+        print("\nMaya per-face transfer smoke test passed.")
 
 
 def check(label, condition, detail=""):
@@ -125,9 +133,10 @@ try:
     # 5. single-material source: unchanged behaviour (regression check).
     # hyperShade is a UI command and is unavailable in batch, so this step runs
     # only from a Maya session (script editor: execfile this file).
-    if cmds.about(batch=True):
+    if cmds.about(query=True, batch=True):
         print("SKIP  single-material regression | hyperShade needs a Maya session")
-        raise SystemExit(0 if not FAILURES else 1)
+        report()
+        raise SystemExit(1 if FAILURES else 0)
 
     del MESSAGES[:]
     plain = cmds.polyCube(name="SmokePlain")[0]
@@ -143,6 +152,7 @@ try:
     check("single-material message unchanged",
           MESSAGES[-1][1].startswith("Material ") and MESSAGES[-1][0] is True, MESSAGES)
 
-    print("\nMaya per-face transfer smoke test passed.")
+    report()
 finally:
-    maya.standalone.uninitialize()
+    if STANDALONE:
+        maya.standalone.uninitialize()
