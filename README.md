@@ -16,8 +16,8 @@ exporting materials and shading networks in Autodesk Maya.
 
 **Assign & select**
 - Assign the selected material to the selected objects
-- Show the material on the selected object
-- Select all objects using a material
+- Show all materials assigned to the selected object, including face assignments
+- Select all objects or the exact faces using a material
 - Transfer a material from a source object to target objects. A source with
   per-face assignments transfers its face sets to targets that match its
   face, vertex and edge counts (duplicates and same-base meshes); targets

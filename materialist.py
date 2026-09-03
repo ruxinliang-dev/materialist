@@ -85,6 +85,17 @@ def _clean_name(name):
     return name.replace(NO_SG_SUFFIX, "") if name else name
 
 
+def _unique(items):
+    """Return items in their original order with duplicates removed."""
+    seen = set()
+    unique = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique
+
+
 def _clean_shader_name(name):
     """Return a base name with the 'pasted__' prefix and trailing numbers removed."""
     short_name = name.split("|")[-1]
@@ -170,12 +181,59 @@ def find_materials(search_query, namespace, only_with_sg):
     return matching_materials
 
 
-def get_shading_group(material_name):
+def get_shading_groups(material_name):
+    """Return every shading group driven by a material."""
     try:
-        connections = cmds.listConnections(material_name + ".outColor", type="shadingEngine")
-        return connections[0] if connections else None
+        connections = cmds.listConnections(
+            material_name + ".outColor",
+            source=False,
+            destination=True,
+            type="shadingEngine",
+        ) or []
+        return _unique(connections)
     except Exception:
-        return None
+        return []
+
+
+def get_shading_group(material_name):
+    """Return the first shading group driven by a material, if any."""
+    shading_groups = get_shading_groups(material_name)
+    return shading_groups[0] if shading_groups else None
+
+
+def _materials_from_shading_engines(shading_engines):
+    """Return all surface materials connected to the supplied shading groups."""
+    materials = []
+    for shading_engine in shading_engines:
+        connected = cmds.listConnections(
+            shading_engine + ".surfaceShader",
+            source=True,
+            destination=False,
+        ) or []
+        materials += cmds.ls(connected, materials=True, long=True) or []
+    return _unique(materials)
+
+
+def _selected_shapes():
+    """Return the non-intermediate shapes represented by the current selection."""
+    selected_nodes = cmds.ls(
+        selection=True,
+        objectsOnly=True,
+        long=True,
+    ) or []
+    shapes = []
+    for node in selected_nodes:
+        child_shapes = cmds.listRelatives(
+            node,
+            shapes=True,
+            noIntermediate=True,
+            fullPath=True,
+        ) or []
+        if child_shapes:
+            shapes += child_shapes
+        elif cmds.nodeType(node) in ("mesh", "nurbsSurface", "subdiv"):
+            shapes.append(node)
+    return _unique(shapes)
 
 
 def _build_material_entries(materials):
@@ -395,7 +453,7 @@ def transfer_material(*args):
                  if connections else [])
     # Connection traversal can return the same material more than once. Keep
     # the first occurrence so the safety check reflects unique material nodes.
-    materials = list(dict.fromkeys(materials))
+    materials = _unique(materials)
     if not materials:
         _msg("No material found for {}.".format(source_object), ok=False)
         return
@@ -667,29 +725,37 @@ def select_material_of_selected_item(*args):
 
 
 def select_material_of_selected_object(*args):
-    selected_objects = cmds.ls(selection=True)
-    if not selected_objects:
+    selected_shapes = _selected_shapes()
+    if not selected_shapes:
         _msg("No objects selected.", ok=False)
         return
 
-    shape_nodes = cmds.listRelatives(selected_objects[0], shapes=True, fullPath=True)
-    if not shape_nodes:
-        _msg("Selected object has no shape node.", ok=False)
-        return
-
-    shading_engines = cmds.listConnections(shape_nodes[0], type="shadingEngine")
+    shading_engines = []
+    for shape in selected_shapes:
+        # listConnections(shape) can include initialShadingGroup after all of
+        # its members have been reassigned. listSets reports only the shading
+        # groups that currently contain the object or one of its components.
+        shading_engines += cmds.listSets(object=shape, type=1) or []
+    shading_engines = _unique(shading_engines)
     if not shading_engines:
         _msg("Selected object has no shading engine.", ok=False)
         return
 
-    material = cmds.listConnections(shading_engines[0] + ".surfaceShader")
-    if not material:
-        _msg("No material connected to the selected object.", ok=False)
+    materials = _materials_from_shading_engines(shading_engines)
+    if not materials:
+        _msg("No materials connected to the selected object.", ok=False)
         return
 
     cmds.textScrollList(_ui["material_list"], edit=True, removeAll=True)
-    cmds.textScrollList(_ui["material_list"], edit=True, append=material[0])
-    _msg("Material {} listed in Matching Materials.".format(material[0]))
+    cmds.textScrollList(_ui["material_list"], edit=True, append=materials)
+    cmds.textScrollList(_ui["material_list"], edit=True, selectItem=materials[0])
+    if len(materials) == 1:
+        _msg("Material {} listed in Matching Materials.".format(materials[0]))
+    else:
+        _msg(
+            "{} materials listed in Matching Materials. "
+            "Select one to choose its assigned objects or faces.".format(len(materials))
+        )
 
 
 def select_objects_with_selected_material(*args):
@@ -703,14 +769,22 @@ def select_objects_with_selected_material(*args):
             return
         material_name = scene_sel[0]
 
-    shading_group = get_shading_group(material_name)
-    if not shading_group:
+    shading_groups = get_shading_groups(material_name)
+    if not shading_groups:
         _msg("No shading group found for {}.".format(material_name), ok=False)
         return
 
-    objects = cmds.sets(shading_group, query=True)
-    if objects:
-        cmds.select(objects)
+    members = []
+    for shading_group in shading_groups:
+        members += cmds.sets(shading_group, query=True) or []
+    members = _unique(members)
+    if members:
+        cmds.select(members, replace=True)
+        _msg(
+            "Selected {} object(s) / component assignment(s) using {}.".format(
+                len(members), material_name
+            )
+        )
     else:
         _msg("No objects found with {} applied.".format(material_name), ok=False)
 
@@ -1006,10 +1080,10 @@ def show():
                 annotation="Assign selected material to selected objects")
     cmds.button(label="Select Material of Selected Object", backgroundColor=BTN_ACTION,
                 command=lambda *_: _repeatable(select_material_of_selected_object),
-                annotation="List the material of the selected object")
+                annotation="List all materials assigned to the selected object or its faces")
     cmds.button(label="Select Objects with Selected Material", backgroundColor=BTN_ACTION,
                 command=lambda *_: _repeatable(select_objects_with_selected_material),
-                annotation="Select objects with the selected material")
+                annotation="Select whole objects or exact faces assigned to the selected material")
     cmds.button(label="Transfer Material", backgroundColor=BTN_ACTION,
                 command=lambda *_: _repeatable(transfer_material),
                 annotation="Select source object first, then targets; targets inherit the same shader")
