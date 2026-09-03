@@ -18,7 +18,10 @@ exporting materials and shading networks in Autodesk Maya.
 - Assign the selected material to the selected objects
 - Show the material on the selected object
 - Select all objects using a material
-- Transfer a material from a source object to target objects
+- Transfer a material from a source object to target objects. A source with
+  per-face assignments transfers its face sets to targets that match its
+  face, vertex and edge counts (duplicates and same-base meshes); targets
+  with different topology are reported and left unchanged
 
 **Edit**
 - Create a material — Lambert, Blinn, Phong, Standard Surface, plus any
