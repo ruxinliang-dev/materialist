@@ -253,6 +253,126 @@ def assign_selected_material(*args):
     _msg("Shader {} assigned to {} object(s).".format(material_name, len(selected_objects)))
 
 
+def _mesh_shape(object_name):
+    """Full path of the object's single renderable mesh shape, else None.
+
+    Face sets can only be re-applied component by component when both sides
+    resolve to exactly one mesh shape; anything else is handled whole-object.
+    """
+    if cmds.nodeType(object_name) == "mesh":
+        shapes = cmds.ls(object_name, long=True) or []
+    else:
+        shapes = cmds.listRelatives(object_name, shapes=True,
+                                    noIntermediate=True, fullPath=True) or []
+        shapes = [shape for shape in shapes if cmds.nodeType(shape) == "mesh"]
+    return shapes[0] if len(shapes) == 1 else None
+
+
+def _mesh_topology(object_name):
+    """(faces, vertices, edges) for a poly object, else None.
+
+    polyEvaluate answers with a string ("Nothing counted ...") for non-poly
+    objects, so the counts are type-checked before they are ever compared.
+    """
+    try:
+        counts = (cmds.polyEvaluate(object_name, face=True),
+                  cmds.polyEvaluate(object_name, vertex=True),
+                  cmds.polyEvaluate(object_name, edge=True))
+    except Exception:
+        return None
+    return counts if all(isinstance(count, int) for count in counts) else None
+
+
+def _face_components(engine, shape_path):
+    """Component strings of the engine's per-face membership on one shape.
+
+    Membership is recorded on the shape and cmds.sets may report it by short
+    name, so both sides are resolved to full paths rather than testing a
+    transform path against a shape name. Ranges are kept exactly as Maya
+    reports them ("f[0:99]"): re-prefixing those onto a target costs one
+    string per member, while flattening would cost one per face.
+    """
+    components = []
+    for member in cmds.sets(engine, query=True) or []:
+        if "." not in member:
+            continue  # whole-object membership carries no face information
+        node, component = member.split(".", 1)
+        resolved = cmds.ls(node, long=True) or []
+        if not resolved:
+            continue
+        # Accept the shape itself, and a transform path for the same shape:
+        # which one cmds.sets reports varies with name ambiguity.
+        if resolved[0] == shape_path or _mesh_shape(resolved[0]) == shape_path:
+            components.append(component)
+    return components
+
+
+def _transfer_face_sets(source_object, target_objects, shading_engines,
+                        material_count):
+    """Re-apply a per-face source's shading-group membership to its targets.
+
+    A target receives the source's face sets when its face, vertex and edge
+    counts all match. Equal counts are strong evidence of a duplicate or a
+    shared base mesh, but they do not prove identical face order, so the
+    reported message names how many targets took which path. Targets that do
+    not match are left untouched instead of being downgraded to one arbitrary
+    material, which is the guarantee the single-material path already gives.
+
+    The selection is never changed here: cmds.sets addresses its components
+    directly, so nothing in this path reads the current selection.
+    """
+    source_shape = _mesh_shape(source_object)
+    source_topology = _mesh_topology(source_object) if source_shape else None
+
+    face_sets = []
+    if source_shape:
+        for engine in shading_engines:
+            components = _face_components(engine, source_shape)
+            if components:
+                face_sets.append((engine, components))
+
+    if not source_topology or len(face_sets) < 2:
+        # Reachable when the source is not a single poly mesh, or when its
+        # extra materials come through history without holding face membership.
+        _msg("Source has {} materials but no readable per-face assignment; "
+             "transfer cancelled to avoid replacing the targets' shading."
+             .format(material_count), ok=False)
+        return
+
+    transferred, skipped = [], []
+    cmds.undoInfo(openChunk=True, chunkName="Transfer Material")
+    try:
+        for target in target_objects:
+            target_shape = _mesh_shape(target)
+            if not target_shape or _mesh_topology(target) != source_topology:
+                skipped.append(target)
+                continue
+            for engine, components in face_sets:
+                cmds.sets(["{}.{}".format(target_shape, component)
+                           for component in components],
+                          edit=True, forceElement=engine)
+            transferred.append(target)
+    finally:
+        # Never leave Maya's undo queue inside an open chunk.
+        cmds.undoInfo(closeChunk=True)
+
+    if not transferred:
+        _msg("Source has {} materials (per-face); no target matched its face, "
+             "vertex and edge counts, so nothing was changed."
+             .format(material_count), ok=False)
+        return
+
+    summary = ("Source has {} materials (per-face); transferred {} face set(s) "
+               "to {} target(s).".format(material_count, len(face_sets),
+                                         len(transferred)))
+    if skipped:
+        _msg(summary + " Skipped {} target(s) with different face, vertex or "
+                       "edge counts; their shading is unchanged."
+             .format(len(skipped)), ok=False)
+    else:
+        _msg(summary)
+
+
 def transfer_material(*args):
     # Full DAG paths provide stable object identification in complex
     # hierarchies (same convention as create_and_assign_material / find_materials).
@@ -278,13 +398,10 @@ def transfer_material(*args):
         return
 
     if len(materials) > 1:
-        # Per-face remapping is handled separately. Do not replace the targets'
-        # assignments with an arbitrary first material in this safe fallback.
-        _msg(
-            "Source has {} materials; transfer cancelled to avoid losing "
-            "possible per-face assignments.".format(len(materials)),
-            ok=False,
-        )
+        # Per-face source: reproduce its face sets instead of picking one
+        # material for the whole target.
+        _transfer_face_sets(source_object, target_objects, shading_engines,
+                            len(materials))
         return
 
     material = materials[0]
