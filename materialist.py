@@ -214,6 +214,36 @@ def _materials_from_shading_engines(shading_engines):
     return _unique(materials)
 
 
+def _node_shapes(node):
+    """Return a node's non-intermediate shapes, or the node itself if it is one."""
+    child_shapes = cmds.listRelatives(
+        node,
+        shapes=True,
+        noIntermediate=True,
+        fullPath=True,
+    ) or []
+    if child_shapes:
+        return child_shapes
+    if cmds.nodeType(node) in ("mesh", "nurbsSurface", "subdiv"):
+        return cmds.ls(node, long=True) or []
+    return []
+
+
+def _assigned_shading_engines(object_name):
+    """Return the shading groups that currently hold the object or its faces.
+
+    listHistory also reports shading groups that no longer contain anything of
+    this object - initialShadingGroup survives in the history graph after every
+    face has been reassigned - which would overstate the material count and
+    send a single-material source down the per-face branch. listSets reports
+    current membership only.
+    """
+    shading_engines = []
+    for shape in _node_shapes(object_name):
+        shading_engines += cmds.listSets(object=shape, type=1) or []
+    return _unique(cmds.ls(shading_engines, type="shadingEngine") or [])
+
+
 def _selected_shapes():
     """Return the non-intermediate shapes represented by the current selection."""
     selected_nodes = cmds.ls(
@@ -223,16 +253,7 @@ def _selected_shapes():
     ) or []
     shapes = []
     for node in selected_nodes:
-        child_shapes = cmds.listRelatives(
-            node,
-            shapes=True,
-            noIntermediate=True,
-            fullPath=True,
-        ) or []
-        if child_shapes:
-            shapes += child_shapes
-        elif cmds.nodeType(node) in ("mesh", "nurbsSurface", "subdiv"):
-            shapes.append(node)
+        shapes += _node_shapes(node)
     return _unique(shapes)
 
 
@@ -445,15 +466,8 @@ def transfer_material(*args):
     source_object = selected_objects[0]
     target_objects = selected_objects[1:]
 
-    history = cmds.listHistory(source_object, future=True) or []
-    shading_engines = cmds.ls(history, type="shadingEngine") or []
-    connections = ((cmds.listConnections(shading_engines) or [])
-                   if shading_engines else [])
-    materials = ((cmds.ls(connections, materials=True) or [])
-                 if connections else [])
-    # Connection traversal can return the same material more than once. Keep
-    # the first occurrence so the safety check reflects unique material nodes.
-    materials = _unique(materials)
+    shading_engines = _assigned_shading_engines(source_object)
+    materials = _materials_from_shading_engines(shading_engines)
     if not materials:
         _msg("No material found for {}.".format(source_object), ok=False)
         return

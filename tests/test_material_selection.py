@@ -112,5 +112,36 @@ class MaterialSelectionTests(unittest.TestCase):
         )
 
 
+class AssignedShadingEngineTests(unittest.TestCase):
+    """Only shading groups that currently hold the object are reported."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.materialist = _load_materialist()
+
+    def setUp(self):
+        self.cmds = mock.MagicMock()
+        self.materialist.cmds = self.cmds
+
+    def test_stale_history_shading_groups_are_not_reported(self):
+        # listSets answers with current membership; the filter drops the
+        # non-shadingEngine sets listSets(type=1) can also return.
+        self.cmds.listRelatives.return_value = ["|obj|objShape"]
+        self.cmds.listSets.return_value = ["blinn1SG", "someRenderSet", "blinn1SG"]
+
+        def ls(*args, **kwargs):
+            if kwargs.get("type") == "shadingEngine":
+                return [n for n in args[0] if n.endswith("SG")]
+            return []
+
+        self.cmds.ls.side_effect = ls
+
+        engines = self.materialist._assigned_shading_engines("|obj")
+
+        self.assertEqual(engines, ["blinn1SG"])
+        self.cmds.listSets.assert_called_once_with(object="|obj|objShape", type=1)
+        self.cmds.listHistory.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
